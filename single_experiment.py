@@ -21,9 +21,9 @@ def str2bool(v):
 
 parser = argparse.ArgumentParser()
 
-parser.add_argument('--dataset')
-parser.add_argument('--num_shots',type=int)
-parser.add_argument('--generalized', type = str2bool)
+parser.add_argument('--dataset', default="ZDFY")
+parser.add_argument('--num_shots',type=int, default=0)
+parser.add_argument('--generalized', type = str2bool, default=True)
 args = parser.parse_args()
 
 
@@ -48,18 +48,19 @@ hyperparameters = {
 
     'lr_gen_model': 0.00015,
     'generalized': True,
-    'batch_size': 50,
+    'batch_size': 8,
     'samples_per_class': {'SUN': (200, 0, 400, 0),
                           'APY': (200, 0, 400, 0),
                           'CUB': (200, 0, 400, 0),
                           'AWA2': (200, 0, 400, 0),
                           'FLO': (200, 0, 400, 0),
-                          'AWA1': (200, 0, 400, 0)},
-    'epochs': 500,
+                          'AWA1': (200, 0, 400, 0),
+                          'ZDFY': (200, 0, 400, 0)},
+    'epochs': 200,
     'loss': 'l1',
     'auxiliary_data_source' : 'attributes',
     'lr_cls': 0.001,
-    'dataset': 'CUB',
+    'dataset': 'ZDFY',
     'hidden_size_rule': {'resnet_features': (4096, 4096),
                         'attributes': (4096, 4096),
                         'sentences': (4096, 4096) },
@@ -68,7 +69,7 @@ hyperparameters = {
     'recon_x_cyc_w': 0.5,
     'adapt_mode': 'SWD',               #MCD or SWD
     'classifier': 'softmax',          #softmax
-    'result_root': '/home/shimingchen/ZSL/HSVA/model/result'
+    'result_root': '/home/LAB/chenlb24/compare_model/HSVA/model/result'
 }
 
 # The training epochs for the final classifier, for early stopping,
@@ -76,6 +77,7 @@ hyperparameters = {
 
 cls_train_steps = [
       {'dataset': 'SUN',  'num_shots': 0, 'generalized': True, 'cls_train_steps': 21},
+      {'dataset': 'ZDFY',  'num_shots': 0, 'generalized': True, 'cls_train_steps': 21},
       {'dataset': 'SUN',  'num_shots': 0, 'generalized': False, 'cls_train_steps': 30},
       {'dataset': 'SUN',  'num_shots': 1, 'generalized': True, 'cls_train_steps': 22},
       {'dataset': 'SUN',  'num_shots': 1, 'generalized': False, 'cls_train_steps': 96},
@@ -155,7 +157,7 @@ if hyperparameters['generalized']:
     if hyperparameters['num_shots']==0:
         hyperparameters['samples_per_class'] = {'CUB': (200, 0, 400, 0), 'SUN': (200, 0, 400, 0),
                                 'APY': (200, 0,  400, 0), 'AWA1': (200, 0, 400, 0),
-                                'AWA2': (200, 0, 400, 0), 'FLO': (200, 0, 400, 0)}
+                                'AWA2': (200, 0, 400, 0), 'FLO': (200, 0, 400, 0), 'ZDFY': (200, 0, 400, 0)}
     else:
         hyperparameters['samples_per_class'] = {'CUB': (200, 0, 200, 200), 'SUN': (200, 0, 200, 200),
                                                     'APY': (200, 0, 200, 200), 'AWA1': (200, 0, 200, 200),
@@ -170,7 +172,7 @@ else:
                                                     'APY': (0, 0, 200, 200), 'AWA1': (0, 0, 200, 200),
                                                     'AWA2': (0, 0, 200, 200), 'FLO': (0, 0, 200, 200)}
 
-
+# model = torch.load("/home/LAB/chenlb24/compare_model/HSVA/model/result/CUB/model_full.pth")
 model = Model( hyperparameters)
 model.to(hyperparameters['device'])
 
@@ -190,6 +192,8 @@ for d in model.all_data_sources_without_duplicates:
 start = time.time()
 
 model.train_vae()
+
+torch.save(model, '/home/LAB/chenlb24/compare_model/HSVA/model/result/CUB/model_full.pth')
 
 time_used = time.time()- start
 

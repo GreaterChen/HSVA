@@ -81,6 +81,10 @@ class Model(nn.Module):
             self.num_classes=102
             self.num_unseen_classes = 20
             self.manualSeed = 806
+        elif self.DATASET=='ZDFY':
+            self.num_classes=3
+            self.num_unseen_classes=1
+            self.manualSeed=42
 
         if self.manualSeed is None:
             self.manualSeed = random.randint(1, 10000)
@@ -105,7 +109,7 @@ class Model(nn.Module):
         
         self.discriminator = {}
         for datatype, dim in zip(self.all_data_sources,feature_dimensions):
-            self.discriminator[datatype] = models.discriminator_template(dim, 1, self.hidden_size_rule[datatype], self.device)
+            self.discriminator[datatype] = models.domain_discriminator(dim, 1, self.hidden_size_rule[datatype], self.device)
         
         
         seen_class= (self.num_classes-self.num_unseen_classes)
@@ -133,8 +137,6 @@ class Model(nn.Module):
         self.mone = self.one * -1
         self.one = self.one.cuda()
         self.mone = self.mone.cuda()
-
-        
         
         enc_params = list(self.encoder['resnet_features'].parameters()) + list(self.encoder[self.auxiliary_data_source].parameters())
         dec_params = list(self.decoder['resnet_features'].parameters()) + list(self.decoder[self.auxiliary_data_source].parameters())
@@ -704,6 +706,7 @@ class Model(nn.Module):
                     data_from_unseen[j] = data_from_unseen[j].to(self.device)
                     data_from_unseen[j].requires_grad = False
                 # unseen_label = seen_label = label = self.map_label(data_from_unseen[1], self.dataset.unseenclasses)
+                
 
                 distance,loss_gen = self.gen_update(data_from_modalities[0], data_from_modalities[1], seen_label, data_from_unseen[0])
                 if i%50==0:
@@ -727,6 +730,7 @@ class Model(nn.Module):
                     if best_H<H:# and best_unseen< unseen:
                         best_gzsl_epoch= epoch
                         best_unseen, best_seen, best_H= unseen, seen, H
+                        torch.save(self, f'/home/LAB/chenlb24/compare_model/HSVA/model/result/CUB/model_full_{epoch}.pth')
                     print('[best_epoch=%.1f] best_unseen=%.3f, best_seen=%.3f, best_h=%.3f' % (
                     best_gzsl_epoch, best_unseen, best_seen, best_H))
                     

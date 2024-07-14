@@ -21,7 +21,7 @@ def weights_init(m):
 class encoder_z(nn.Module):
 
     def __init__(self,input_dim, latent_size,device):
-        super(encoder_z_v5,self).__init__()
+        super(encoder_z,self).__init__()
         self.layer_sizes = [input_dim, 2048, latent_size]
         modules = []
         for i in range(len(self.layer_sizes)-2):
@@ -48,7 +48,7 @@ class encoder_z(nn.Module):
 class encoder_template(nn.Module):
 
     def __init__(self,input_dim,output_dim,device):
-        super(encoder_template_v5,self).__init__()
+        super(encoder_template,self).__init__()
         self.feature_encoder = nn.Sequential(nn.Linear(input_dim,4096),nn.LeakyReLU(0.2, True),nn.Linear(4096,output_dim))
         self.apply(weights_init)
         self.to(device)

@@ -1,5 +1,6 @@
 
 
+import json
 import numpy as np
 import scipy.io as sio
 import torch
@@ -30,7 +31,7 @@ class DATA_LOADER(object):
 
         print('Project Directory:')
         print(project_directory)
-        data_path = '/home/shimingchen/ZSL/HSVA/data'
+        data_path = '/home/LAB/chenlb24/ZhengDaFuyi'
         print('Data Path')
         print(data_path)
         sys.path.append(data_path)
@@ -54,9 +55,13 @@ class DATA_LOADER(object):
             self.datadir = self.data_path + '/APY/'
         elif self.dataset == 'FLO':
             self.datadir = self.data_path + '/FLO/'
+        elif self.dataset == "ZDFY":
+            self.datadir = self.data_path
 
-
-        self.read_matdataset()
+        if self.dataset == "ZDFY":
+            self.read_turmor()
+        else:
+            self.read_matdataset()
         self.index_in_epoch = 0
         self.epochs_completed = 0
 
@@ -66,6 +71,7 @@ class DATA_LOADER(object):
         batch_feature = self.data['train_seen']['resnet_features'][idx]
         batch_label =  self.data['train_seen']['labels'][idx]
         batch_att = self.aux_data[batch_label]
+        
         return [ batch_feature, batch_att, batch_label]
         
     def next_unseen_batch(self, batch_size):
@@ -84,6 +90,106 @@ class DATA_LOADER(object):
         # batch_unseen_att=self.aux_data[unseen_label]
         
         # return [batch_unseen_att, unseen_label]
+        
+    def read_turmor(self):
+        
+        self.train_class = [1, 2]
+
+        # 加载训练特征和标签并转换为 Tensor
+        self.train_feature = np.load(os.path.join(self.datadir, 'resnet101', 'train_features.npy'))  # (606, 2048)
+        self.train_label = np.load(os.path.join(self.datadir, 'resnet101', 'train_targets.npy'))
+        self.train_feature = torch.tensor(self.train_feature, dtype=torch.float32).to(self.device)
+        self.train_label = torch.tensor(self.train_label, dtype=torch.long).to(self.device)
+
+        self.ntrain = self.train_feature.shape[0]
+        self.ntrain_class = 2
+        self.ntest_class = 1
+        
+        
+        # 加载测试特征和标签并转换为 Tensor
+        self.test_feature = np.load(os.path.join(self.datadir, 'resnet101', 'valid_features.npy'))  # (171, 2048)
+        self.test_label = np.load(os.path.join(self.datadir, 'resnet101', 'valid_targets.npy'))
+        self.test_feature = torch.tensor(self.test_feature, dtype=torch.float32).to(self.device)
+        self.test_label = torch.tensor(self.test_label, dtype=torch.long).to(self.device)
+
+        # 加载属性嵌入并转换为 Tensor
+        file_path = os.path.join(self.datadir, 'att', 'embeddings.json')
+        with open(file_path, 'r') as f:
+            data = json.load(f)
+
+        attribute = {}
+        for key, value in data.items():
+            attribute[key] = np.array(value)
+
+        categories = list(attribute.keys())
+        embedding_list = [attribute[category] for category in categories]
+        self.attribute = torch.tensor(np.array(embedding_list), dtype=torch.float32).to(self.device)
+        self.aux_data = self.attribute
+
+        self.allclasses = torch.from_numpy(np.array([0, 1, 2])).to(self.device)
+        self.seenclasses = torch.from_numpy(np.array([1, 2])).to(self.device)
+        self.unseenclasses = torch.from_numpy(np.array([0])).to(self.device)
+        self.attribute_seen = self.attribute[self.seenclasses]
+        
+        self.train_att = self.attribute_seen
+        self.test_att = self.attribute[self.unseenclasses]
+
+        # 提取标签为 1 和 2 的测试数据
+        indices_seen = (self.test_label == 1) | (self.test_label == 2)
+        self.test_seen_feature = self.test_feature[indices_seen]
+        self.test_seen_label = self.test_label[indices_seen]
+
+        # 提取标签为 0 的测试数据
+        indices_unseen = self.test_label == 0
+        self.test_unseen_feature = self.test_feature[indices_unseen]
+        self.test_unseen_label = self.test_label[indices_unseen]
+
+        # 计算每个类别的样本数量
+        self.train_samples_class_index = torch.tensor([self.train_label.eq(i_class).sum().float() for i_class in self.train_class])
+        
+        self.train_mapped_label = map_label(self.train_label, self.seenclasses)
+        
+        # self.train_label = map_label(self.train_label, self.seenclasses)
+        # self.test_unseen_label = map_label(self.test_unseen_label, self.unseenclasses)
+        # self.test_seen_label = map_label(self.test_seen_label, self.seenclasses)
+        
+        self.ntest_unseen = self.test_unseen_feature.size()[0]
+        self.ntest_seen = self.test_seen_feature.size()[0]
+        
+        
+        self.data = {}
+        self.data['train_seen'] = {}
+        self.data['train_seen']['resnet_features'] = self.train_feature
+        self.data['train_seen']['labels'] = self.train_label
+        self.data['train_seen'][self.auxiliary_data_source] = self.aux_data[self.train_label]
+
+
+        self.data['train_unseen'] = {}
+        self.data['train_unseen']['resnet_features'] = None
+        self.data['train_unseen']['labels'] = None
+
+        self.data['test_seen'] = {}
+        self.data['test_seen']['resnet_features'] = self.test_seen_feature
+        self.data['test_seen']['labels'] = self.test_seen_label
+
+        self.data['test_unseen'] = {}
+        self.data['test_unseen']['resnet_features'] = self.test_unseen_feature
+        self.data['test_unseen'][self.auxiliary_data_source] = self.aux_data[self.test_unseen_label]
+        self.data['test_unseen']['labels'] = self.test_unseen_label
+        
+        self.unseenclass_aux_data = self.aux_data[self.unseenclasses]
+        self.seenclass_aux_data = self.aux_data[self.seenclasses]
+
+        # 打印结果以确认
+        print("训练集特征形状:", self.train_feature.shape)
+        print("训练集标签形状:", self.train_label.shape)
+        print("测试集特征形状:", self.test_feature.shape)
+        print("测试集标签形状:", self.test_label.shape)
+        print("提取的测试集特征形状 (seen):", self.test_seen_feature.shape)
+        print("提取的测试集标签形状 (seen):", self.test_seen_label.shape)
+        print("提取的测试集特征形状 (unseen):", self.test_unseen_feature.shape)
+        print("提取的测试集标签形状 (unseen):", self.test_unseen_label.shape)
+        print("每个类别的样本数量:", self.train_samples_class_index)
 
     def read_matdataset(self):
 
