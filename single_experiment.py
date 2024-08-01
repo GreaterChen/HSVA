@@ -21,7 +21,7 @@ def str2bool(v):
 
 parser = argparse.ArgumentParser()
 
-parser.add_argument('--dataset', default="ZDFY")
+parser.add_argument('--dataset', default="ADNI")
 parser.add_argument('--num_shots',type=int, default=0)
 parser.add_argument('--generalized', type = str2bool, default=True)
 args = parser.parse_args()
@@ -34,7 +34,7 @@ hyperparameters = {
     'num_shots': 0,
     'device': 'cuda',
     'model_specifics': {'cross_reconstruction': True,
-                       'name': 'CADA',
+                       'name': 'CUDA',
                        'distance': 'wasserstein',
                        'warmup': {'beta': {'factor': 0.25,
                                            'end_epoch': 90,
@@ -46,7 +46,7 @@ hyperparameters = {
                                                'end_epoch': 25,
                                                'start_epoch': 0}}},
 
-    'lr_gen_model': 0.00015,
+    'lr_gen_model': 0.000015,
     'generalized': True,
     'batch_size': 8,
     'samples_per_class': {'SUN': (200, 0, 400, 0),
@@ -55,12 +55,13 @@ hyperparameters = {
                           'AWA2': (200, 0, 400, 0),
                           'FLO': (200, 0, 400, 0),
                           'AWA1': (200, 0, 400, 0),
-                          'ZDFY': (200, 0, 400, 0)},
+                          'ZDFY': (200, 0, 400, 0),
+                          'ADNI': (200, 0, 400, 0)},
     'epochs': 200,
     'loss': 'l1',
     'auxiliary_data_source' : 'attributes',
-    'lr_cls': 0.001,
-    'dataset': 'ZDFY',
+    'lr_cls': 0.0001,
+    'dataset': 'ADNI',
     'hidden_size_rule': {'resnet_features': (4096, 4096),
                         'attributes': (4096, 4096),
                         'sentences': (4096, 4096) },
@@ -78,6 +79,7 @@ hyperparameters = {
 cls_train_steps = [
       {'dataset': 'SUN',  'num_shots': 0, 'generalized': True, 'cls_train_steps': 21},
       {'dataset': 'ZDFY',  'num_shots': 0, 'generalized': True, 'cls_train_steps': 21},
+      {'dataset': 'ADNI',  'num_shots': 0, 'generalized': True, 'cls_train_steps': 21},
       {'dataset': 'SUN',  'num_shots': 0, 'generalized': False, 'cls_train_steps': 30},
       {'dataset': 'SUN',  'num_shots': 1, 'generalized': True, 'cls_train_steps': 22},
       {'dataset': 'SUN',  'num_shots': 1, 'generalized': False, 'cls_train_steps': 96},
@@ -157,7 +159,8 @@ if hyperparameters['generalized']:
     if hyperparameters['num_shots']==0:
         hyperparameters['samples_per_class'] = {'CUB': (200, 0, 400, 0), 'SUN': (200, 0, 400, 0),
                                 'APY': (200, 0,  400, 0), 'AWA1': (200, 0, 400, 0),
-                                'AWA2': (200, 0, 400, 0), 'FLO': (200, 0, 400, 0), 'ZDFY': (200, 0, 400, 0)}
+                                'AWA2': (200, 0, 400, 0), 'FLO': (200, 0, 400, 0), 'ZDFY': (200, 0, 400, 0),
+                                'ADNI': (200, 0, 400, 0)}
     else:
         hyperparameters['samples_per_class'] = {'CUB': (200, 0, 200, 200), 'SUN': (200, 0, 200, 200),
                                                     'APY': (200, 0, 200, 200), 'AWA1': (200, 0, 200, 200),
@@ -172,7 +175,7 @@ else:
                                                     'APY': (0, 0, 200, 200), 'AWA1': (0, 0, 200, 200),
                                                     'AWA2': (0, 0, 200, 200), 'FLO': (0, 0, 200, 200)}
 
-# model = torch.load("/home/LAB/chenlb24/compare_model/HSVA/model/result/CUB/model_full.pth")
+# model = torch.load("/home/LAB/chenlb24/compare_model/HSVA/model/result/ZDFY/model_full.pth")
 model = Model( hyperparameters)
 model.to(hyperparameters['device'])
 
@@ -193,7 +196,7 @@ start = time.time()
 
 model.train_vae()
 
-torch.save(model, '/home/LAB/chenlb24/compare_model/HSVA/model/result/CUB/model_full.pth')
+torch.save(model, '/home/LAB/chenlb24/compare_model/HSVA/model/result/ADNI/model_full.pth')
 
 time_used = time.time()- start
 

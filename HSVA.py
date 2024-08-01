@@ -1,5 +1,6 @@
 #vaemodel
 import copy
+import pandas as pd
 import torch
 import sys
 import numpy as np
@@ -84,7 +85,11 @@ class Model(nn.Module):
         elif self.DATASET=='ZDFY':
             self.num_classes=3
             self.num_unseen_classes=1
-            self.manualSeed=42
+            self.manualSeed=318
+        elif self.DATASET=='ADNI':
+            self.num_classes=3
+            self.num_unseen_classes=1
+            self.manualSeed=318
 
         if self.manualSeed is None:
             self.manualSeed = random.randint(1, 10000)
@@ -276,101 +281,60 @@ class Model(nn.Module):
         loss = wt * (pred-gt).abs()
         return loss.sum()/loss.size(0)
         
-    def train_classifier(self, current_epoch):
-
-        if self.num_shots > 0 :
+    def train_classifier(self, current_epoch, return_probs=False):
+        if self.num_shots > 0:
             print('================  transfer features from test to train ==================')
             self.dataset.transfer_features(self.num_shots, num_queries='num_features')
 
-        history = []  # stores accuracies
-
+        history = []
 
         cls_seenclasses = self.dataset.seenclasses
         cls_unseenclasses = self.dataset.unseenclasses
 
-
         train_seen_feat = self.dataset.data['train_seen']['resnet_features']
         train_seen_label = self.dataset.data['train_seen']['labels']
 
-        unseenclass_aux_data = self.dataset.unseenclass_aux_data  # access as unseenclass_aux_data['resnet_features'], unseenclass_aux_data['attributes']
+        unseenclass_aux_data = self.dataset.unseenclass_aux_data
         seenclass_aux_data = self.dataset.seenclass_aux_data
 
         unseen_corresponding_labels = self.dataset.unseenclasses.long().to(self.device)
         seen_corresponding_labels = self.dataset.seenclasses.long().to(self.device)
 
-
-        # The resnet_features for testing the classifier are loaded here
-        unseen_test_feat = self.dataset.data['test_unseen'][
-            'resnet_features']  # self.dataset.test_unseen_feature.to(self.device)
-        seen_test_feat = self.dataset.data['test_seen'][
-            'resnet_features']  # self.dataset.test_seen_feature.to(self.device)
-        test_seen_label = self.dataset.data['test_seen']['labels']  # self.dataset.test_seen_label.to(self.device)
-        test_unseen_label = self.dataset.data['test_unseen']['labels']  # self.dataset.test_unseen_label.to(self.device)
+        unseen_test_feat = self.dataset.data['test_unseen']['resnet_features']
+        seen_test_feat = self.dataset.data['test_seen']['resnet_features']
+        test_seen_label = self.dataset.data['test_seen']['labels']
+        test_unseen_label = self.dataset.data['test_unseen']['labels']
 
         train_unseen_feat = self.dataset.data['train_unseen']['resnet_features']
         train_unseen_label = self.dataset.data['train_unseen']['labels']
 
-
-        # in ZSL mode:
         if self.generalized == False:
-            # there are only 50 classes in ZSL (for CUB)
-            # unseen_corresponding_labels =list of all unseen classes (as tensor)
-            # test_unseen_label = mapped to 0-49 in classifier function
-            # those are used as targets, they have to be mapped to 0-49 right here:
-
             unseen_corresponding_labels = self.map_label(unseen_corresponding_labels, unseen_corresponding_labels)
 
             if self.num_shots > 0:
-                # not generalized and at least 1 shot means normal FSL setting (use only unseen classes)
                 train_unseen_label = self.map_label(train_unseen_label, cls_unseenclasses)
 
-            # for FSL, we train_seen contains the unseen class examples
-            # for ZSL, train seen label is not used
-            # if self.num_shots>0:
-            #    train_seen_label = self.map_label(train_seen_label,cls_unseenclasses)
-
             test_unseen_label = self.map_label(test_unseen_label, cls_unseenclasses)
-
-            # map cls unseenclasses last
             cls_unseenclasses = self.map_label(cls_unseenclasses, cls_unseenclasses)
-
 
         if self.generalized:
             clf = LINEAR_LOGSOFTMAX(self.latent_size, self.num_classes)
         else:
             clf = LINEAR_LOGSOFTMAX(self.latent_size, self.num_unseen_classes)
 
-
         clf.apply(models.weights_init)
 
         with torch.no_grad():
-
-            ####################################
-            # preparing the test set
-            # convert raw test data into z vectors
-            ####################################
-
             self.reparameterize_with_noise = False
             unseen_coarse_features = self.encoder['resnet_features'](unseen_test_feat)
             mu1, var1 = self.encoder_z(unseen_coarse_features)
-            # test_unseen_X = unseen_coarse_features.to(self.device).data
             test_unseen_X = self.reparameterize(mu1, var1).to(self.device).data
             test_unseen_Y = test_unseen_label.to(self.device)
 
             seen_coarse_features = self.encoder['resnet_features'](seen_test_feat)
             mu2, var2 = self.encoder_z(seen_coarse_features)
-            # test_seen_X = seen_coarse_features.to(self.device).data  # coarse_feature
-            test_seen_X = self.reparameterize(mu2, var2).to(self.device).data   ## fine_feature
+            test_seen_X = self.reparameterize(mu2, var2).to(self.device).data
             test_seen_Y = test_seen_label.to(self.device)
-
-            ####################################
-            # preparing the train set:
-            # chose n random image features per
-            # class. If n exceeds the number of
-            # image features per class, duplicate
-            # some. Next, convert them to
-            # latent z features.
-            ####################################
 
             self.reparameterize_with_noise = True
 
@@ -378,13 +342,10 @@ class Model(nn.Module):
                 sample_per_class = int(sample_per_class)
 
                 if sample_per_class != 0 and len(label) != 0:
-
                     classes = label.unique()
 
                     for i, s in enumerate(classes):
-
-                        features_of_that_class = features[label == s, :]  # order of features and labels must coincide
-                        # if number of selected features is smaller than the number of features we want per class:
+                        features_of_that_class = features[label == s, :]
                         multiplier = torch.ceil(torch.cuda.FloatTensor(
                             [max(1, sample_per_class / features_of_that_class.size(0))])).long().item()
 
@@ -397,103 +358,111 @@ class Model(nn.Module):
                             features_to_return = torch.cat(
                                 (features_to_return, features_of_that_class[:sample_per_class, :]), dim=0)
                             labels_to_return = torch.cat((labels_to_return, s.repeat(sample_per_class)),
-                                                         dim=0)
+                                                        dim=0)
 
                     return features_to_return, labels_to_return
                 else:
                     return torch.cuda.FloatTensor([]), torch.cuda.LongTensor([])
 
-
-            # some of the following might be empty tensors if the specified number of
-            # samples is zero :
-
-            img_seen_feat,   img_seen_label   = sample_train_data_on_sample_per_class_basis(
-                train_seen_feat,train_seen_label,self.img_seen_samples )
+            img_seen_feat, img_seen_label = sample_train_data_on_sample_per_class_basis(
+                train_seen_feat, train_seen_label, self.img_seen_samples)
 
             img_unseen_feat, img_unseen_label = sample_train_data_on_sample_per_class_basis(
-                train_unseen_feat, train_unseen_label, self.img_unseen_samples )
+                train_unseen_feat, train_unseen_label, self.img_unseen_samples)
 
             att_unseen_feat, att_unseen_label = sample_train_data_on_sample_per_class_basis(
-                    unseenclass_aux_data,
-                    unseen_corresponding_labels,self.att_unseen_samples )
+                unseenclass_aux_data, unseen_corresponding_labels, self.att_unseen_samples)
 
             att_seen_feat, att_seen_label = sample_train_data_on_sample_per_class_basis(
-                seenclass_aux_data,
-                seen_corresponding_labels, self.att_seen_samples)
+                seenclass_aux_data, seen_corresponding_labels, self.att_seen_samples)
 
             def convert_datapoints_to_z(features, encoder):
                 if features.size(0) != 0:
                     coarse_commom = encoder(features)
                     mu_, logvar_ = self.encoder_z(coarse_commom)
-                    # z = coarse_commom  ## coarse_feature
-                    z = self.reparameterize(mu_, logvar_)  ## fine_feature
+                    z = self.reparameterize(mu_, logvar_)
                     return z
                 else:
                     return torch.cuda.FloatTensor([])
 
-            z_seen_img   = convert_datapoints_to_z(img_seen_feat, self.encoder['resnet_features'])
+            z_seen_img = convert_datapoints_to_z(img_seen_feat, self.encoder['resnet_features'])
             z_unseen_img = convert_datapoints_to_z(img_unseen_feat, self.encoder['resnet_features'])
             z_seen_att = convert_datapoints_to_z(att_seen_feat, self.encoder[self.auxiliary_data_source])
             z_unseen_att = convert_datapoints_to_z(att_unseen_feat, self.encoder[self.auxiliary_data_source])
             train_Z = [z_seen_img, z_unseen_img, z_seen_att, z_unseen_att]
-            train_L = [img_seen_label    , img_unseen_label,att_seen_label,att_unseen_label]
-            
-            # empty tensors are sorted out
+            train_L = [img_seen_label, img_unseen_label, att_seen_label, att_unseen_label]
+
             train_X = [train_Z[i] for i in range(len(train_Z)) if train_Z[i].size(0) != 0]
             train_Y = [train_L[i] for i in range(len(train_L)) if train_Z[i].size(0) != 0]
 
             train_X = torch.cat(train_X, dim=0)
             train_Y = torch.cat(train_Y, dim=0)
 
-        ############################################################
-        ##### initializing the classifier and train one epoch
-        ############################################################
         cls = classifier.CLASSIFIER(clf, train_X, train_Y, test_seen_X, test_seen_Y, test_unseen_X,
-                                    test_unseen_Y,
-                                    cls_seenclasses, cls_unseenclasses,
+                                    test_unseen_Y, cls_seenclasses, cls_unseenclasses,
                                     self.num_classes, self.device, self.selected_cls, self.lr_cls, 0.5, 1,
-                                    self.classifier_batch_size,
-                                    self.generalized)
+                                    self.classifier_batch_size, self.generalized)
+
         best_gzsl_acc = 0
         best_zsl_acc = 0
+
         if self.selected_cls == 'softmax':
             for k in range(self.cls_train_epochs):
                 if self.generalized:
                     cls.acc_seen, cls.acc_unseen, cls.H = cls.fit()
-                    if best_gzsl_acc < cls.H:
+                    if best_gzsl_acc <= cls.H:
                         best_gzsl_acc = cls.H
                         best_gzsl_epoch = k
                         best_seen, best_unseen, best_H = cls.acc_seen, cls.acc_unseen, cls.H
                 else:
                     cls.acc = cls.fit_zsl()
                     if best_zsl_acc < cls.acc:
-                        best_zsl_epoch= k
+                        best_zsl_epoch = k
                         best_unseen = cls.acc
             if self.generalized:
                 print('[epoch=%.1f] unseen=%.3f, seen=%.3f, h=%.3f  - - - - - - ' % (
                     current_epoch, best_unseen, best_seen, best_H), end="")
+                if return_probs:
+                    probs_seen, preds_seen = self.get_predictions(test_seen_X, clf)
+                    probs_unseen, preds_unseen = self.get_predictions(test_unseen_X, clf)
+                    return best_unseen, best_seen, best_H, probs_seen, preds_seen, probs_unseen, preds_unseen, test_seen_Y, test_unseen_Y
                 return best_unseen, best_seen, best_H
-                
-                   
             else:
                 print('[epoch=%.1f] acc=%.3f - - - - - - ' % (current_epoch, best_unseen), end="")
+                if return_probs:
+                    probs, preds = self.get_predictions(test_unseen_X, clf)
+                    return best_unseen, probs, preds, test_unseen_Y
                 return best_unseen
         else:
             if self.generalized:
                 best_seen, best_unseen, best_H = cls.acc_seen, cls.acc_unseen, cls.H
                 print('[epoch=%.1f] unseen=%.3f, seen=%.3f, h=%.3f  - - - - - - ' % (
                     current_epoch, best_unseen, best_seen, best_H), end="")
+                if return_probs:
+                    probs_seen, preds_seen = self.get_predictions(test_seen_X, clf)
+                    probs_unseen, preds_unseen = self.get_predictions(test_unseen_X, clf)
+                    return best_unseen, best_seen, best_H, probs_seen, preds_seen, probs_unseen, preds_unseen, test_seen_Y, test_unseen_Y
                 return best_unseen, best_seen, best_H
             else:
                 for k in range(self.cls_train_epochs):
                     cls.acc = cls.fit_zsl()
                     if best_zsl_acc <= cls.acc:
-                        best_zsl_epoch= k
+                        best_zsl_epoch = k
                         best_unseen = cls.acc
                 print('[epoch=%.1f] acc=%.3f - - - - - - ' % (current_epoch, best_unseen), end="")
+                if return_probs:
+                    probs, preds = self.get_predictions(test_unseen_X, clf)
+                    return best_unseen, probs, preds, test_unseen_Y
                 return best_unseen
 
-    
+    def get_predictions(self, test_X, clf):
+        clf.eval()
+        with torch.no_grad():
+            output = clf(test_X)
+            probs = torch.softmax(output, dim=1).cpu().numpy()
+            _, preds = torch.max(output, 1)
+            preds = preds.cpu().numpy()
+        return probs, preds
        
     def gen_update(self, img, att, label, unseen_att):
         f1 = 1.0*(self.current_epoch - self.warmup['cross_reconstruction']['start_epoch'] )/(1.0*( self.warmup['cross_reconstruction']['end_epoch']- self.warmup['cross_reconstruction']['start_epoch']))
@@ -671,27 +640,29 @@ class Model(nn.Module):
     
 
     def train_vae(self):
-
         losses = []
 
-
-        self.dataset.unseenclasses =self.dataset.unseenclasses.long().cuda()
-        self.dataset.seenclasses =self.dataset.seenclasses.long().cuda()
-        #leave both statements
+        self.dataset.unseenclasses = self.dataset.unseenclasses.long().cuda()
+        self.dataset.seenclasses = self.dataset.seenclasses.long().cuda()
         self.train()
         self.reparameterize_with_noise = True
 
         print('train for reconstruction')
-        
+
         best_H = 0
         best_acc = 0
         best_unseen = 0
-        for epoch in range(0, self.nepoch ):
+        best_seen = 0
+        best_epoch = 0
+        best_gzsl_epoch = 0
+        best_unseen, best_seen, best_H
+        
+        for epoch in range(0, self.nepoch):
             self.current_epoch = epoch
 
-            i=-1
+            i = -1
             for iters in range(0, self.dataset.ntrain, self.batch_size):
-                i+=1
+                i += 1
 
                 data_from_modalities = self.dataset.next_batch(self.batch_size)
                 for j in range(len(data_from_modalities)):
@@ -700,49 +671,63 @@ class Model(nn.Module):
                 
                 seen_label = self.map_label(data_from_modalities[2], self.dataset.seenclasses)
                 
-                
-                data_from_unseen = self.dataset.next_unseen_batch(self.batch_size) 
+                data_from_unseen = self.dataset.next_unseen_batch(self.batch_size)
                 for j in range(len(data_from_unseen)):
                     data_from_unseen[j] = data_from_unseen[j].to(self.device)
                     data_from_unseen[j].requires_grad = False
-                # unseen_label = seen_label = label = self.map_label(data_from_unseen[1], self.dataset.unseenclasses)
-                
 
-                distance,loss_gen = self.gen_update(data_from_modalities[0], data_from_modalities[1], seen_label, data_from_unseen[0])
-                if i%50==0:
-
-                    # print('epoch ' + str(epoch) + ' | iter ' + str(i) + '\t'+
-                    # ' | loss_dis ' +  str(loss_dis)[7:15] + ' | loss_gen ' +  str(loss_gen)[8:15])
-                    print('epoch ' + str(epoch) + ' | iter ' + str(i) + '\t'+ ' | loss_gen ' +  str(loss_gen)[8:14] + ' | distance ' +  str(distance)[7:13])
-
-
+                distance, loss_gen = self.gen_update(data_from_modalities[0], data_from_modalities[1], seen_label, data_from_unseen[0])
+                if i % 50 == 0:
+                    print('epoch ' + str(epoch) + ' | iter ' + str(i) + '\t' + ' | loss_gen ' + str(loss_gen)[8:14] + ' | distance ' + str(distance)[7:13])
             
-
             # turn into evaluation mode:
             for key, value in self.encoder.items():
                 self.encoder[key].eval()
             for key, value in self.decoder.items():
                 self.decoder[key].eval()
-                
-            if epoch>=100:
+            
+            if epoch >= 1:
                 if self.generalized:
-                    unseen, seen, H = self.train_classifier(current_epoch=epoch)
-                    if best_H<H:# and best_unseen< unseen:
-                        best_gzsl_epoch= epoch
-                        best_unseen, best_seen, best_H= unseen, seen, H
-                        torch.save(self, f'/home/LAB/chenlb24/compare_model/HSVA/model/result/CUB/model_full_{epoch}.pth')
-                    print('[best_epoch=%.1f] best_unseen=%.3f, best_seen=%.3f, best_h=%.3f' % (
-                    best_gzsl_epoch, best_unseen, best_seen, best_H))
-                    
-                       
+                    unseen, seen, H, probs_seen, preds_seen, probs_unseen, preds_unseen, true_labels_seen, true_labels_unseen = self.train_classifier(current_epoch=epoch, return_probs=True)
+                    if best_H < H:
+                        best_gzsl_epoch = epoch
+                        best_unseen, best_seen, best_H = unseen, seen, H
+                        torch.save(self, f'/home/LAB/chenlb24/compare_model/HSVA/model/result/ADNI/model_full_{epoch}.pth')
+                    print('[best_epoch=%.1f] best_unseen=%.3f, best_seen=%.3f, best_h=%.3f' % (best_gzsl_epoch, best_unseen, best_seen, best_H))
+                    self.save_results(probs_seen, preds_seen, true_labels_seen, probs_unseen, preds_unseen, true_labels_unseen, seen, unseen, H, epoch)
                 else:
-                    # return 0, torch.tensor(cls.acc).item(), 0, history
-                    acc = self.train_classifier(current_epoch=epoch)
-                    if best_acc<acc:
+                    acc, probs, preds, true_labels = self.train_classifier(current_epoch=epoch, return_probs=True)
+                    if best_acc < acc:
                         best_epoch = epoch
                         best_acc = acc
                     print('[best_epoch=%.1f] best_acc=%.3f' % (best_epoch, best_acc))
+                    self.save_results(probs, preds, true_labels, None, None, None, best_acc, 0, 0, epoch)
     
+    def save_results(self, probs_seen, preds_seen, true_labels_seen, probs_unseen, preds_unseen, true_labels_unseen, best_seen, best_unseen, best_H, epoch):
+        # 确保传入的都是 NumPy 数组
+        true_labels_seen = true_labels_seen.cpu().numpy()
+        
+        if probs_unseen is not None:
+            seen_df = pd.DataFrame(probs_seen, columns=[f'class_{i}' for i in range(probs_seen.shape[1])])
+            seen_df['true_label'] = true_labels_seen
+            seen_df['predicted_label'] = preds_seen  # preds_seen 已经是 NumPy 数组，无需再转换
+
+            true_labels_unseen = true_labels_unseen.cpu().numpy()
+
+            unseen_df = pd.DataFrame(probs_unseen, columns=[f'class_{i}' for i in range(probs_unseen.shape[1])])
+            unseen_df['true_label'] = true_labels_unseen
+            unseen_df['predicted_label'] = preds_unseen  # preds_unseen 已经是 NumPy 数组，无需再转换
+
+            all_df = pd.concat([seen_df, unseen_df])
+            filename = f'/home/LAB/chenlb24/compare_model/HSVA/model/result/ADNI/results_h_{best_H:.4f}_acc_{best_seen:.4f}_unseen_acc_{best_unseen:.4f}_epoch_{epoch}.csv'
+        else:
+            all_df = pd.DataFrame(probs_seen, columns=[f'class_{i}' for i in range(probs_seen.shape[1])])
+            all_df['true_label'] = true_labels_seen
+            all_df['predicted_label'] = preds_seen
+            filename = f'results_acc_{best_seen:.4f}_epoch_{epoch}.csv'
+
+        all_df.to_csv(filename, index=False)
+        
+        
+        
     
-    
- 
