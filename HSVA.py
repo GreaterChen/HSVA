@@ -90,6 +90,10 @@ class Model(nn.Module):
             self.num_classes=3
             self.num_unseen_classes=1
             self.manualSeed=318
+        elif self.DATASET=='APTOS':
+            self.num_classes=5
+            self.num_unseen_classes=1
+            self.manualSeed=318
 
         if self.manualSeed is None:
             self.manualSeed = random.randint(1, 10000)
@@ -692,7 +696,7 @@ class Model(nn.Module):
                     if best_H < H:
                         best_gzsl_epoch = epoch
                         best_unseen, best_seen, best_H = unseen, seen, H
-                        torch.save(self, f'/home/LAB/chenlb24/compare_model/HSVA/model/result/ADNI/model_full_{epoch}.pth')
+                        torch.save(self, f'/home/chenlb/compare_model/HSVA/model/result/APTOS/model_full_{epoch}.pth')
                     print('[best_epoch=%.1f] best_unseen=%.3f, best_seen=%.3f, best_h=%.3f' % (best_gzsl_epoch, best_unseen, best_seen, best_H))
                     self.save_results(probs_seen, preds_seen, true_labels_seen, probs_unseen, preds_unseen, true_labels_unseen, seen, unseen, H, epoch)
                 else:
@@ -719,7 +723,7 @@ class Model(nn.Module):
             unseen_df['predicted_label'] = preds_unseen  # preds_unseen 已经是 NumPy 数组，无需再转换
 
             all_df = pd.concat([seen_df, unseen_df])
-            filename = f'/home/LAB/chenlb24/compare_model/HSVA/model/result/ADNI/results_h_{best_H:.4f}_acc_{best_seen:.4f}_unseen_acc_{best_unseen:.4f}_epoch_{epoch}.csv'
+            filename = f'/home/chenlb/compare_model/HSVA/model/result/APTOS/results_h_{best_H:.4f}_acc_{best_seen:.4f}_unseen_acc_{best_unseen:.4f}_epoch_{epoch}.csv'
         else:
             all_df = pd.DataFrame(probs_seen, columns=[f'class_{i}' for i in range(probs_seen.shape[1])])
             all_df['true_label'] = true_labels_seen
@@ -728,6 +732,8 @@ class Model(nn.Module):
 
         all_df.to_csv(filename, index=False)
         
+        
+
         
         
     
